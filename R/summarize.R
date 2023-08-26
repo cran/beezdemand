@@ -70,7 +70,7 @@ CheckUnsystematic <- function(dat, deltaq = 0.025, bounce = 0.10, reversals = 0,
 
         dfres[i, "DeltaQ"] <- round((log10(adf[1, "y01"]) - log10(adf[nrow(adf), "y01"])) /
             (log10(adf[nrow(adf), "x01"]) - log10(adf[1, "x01"])), 4)
-        dfres[i, "Bounce"] <- round(sum(diff(adf$y) > adf[1, "y"] * 0.25, na.rm = TRUE)  /
+        dfres[i, "Bounce"] <- round(sum(diff(adf$y) > adf$y[1] * 0.25, na.rm = TRUE)  /
             (nrow(adf) - 1), 4)
 
         nrev <- NULL
@@ -171,7 +171,7 @@ GetDescriptives <- function(dat, bwplot = FALSE, outdir = "../plots/", device = 
         if (!dir.exists(outdir)) dir.create(outdir)
         bwplt <- ggplot2::ggplot(dat, aes(x = as.factor(x), y = y)) +
             ggplot2::geom_boxplot() +
-            ggplot2::stat_summary(fun.y = mean, geom = "point", shape = 43, size = 5, color = "red") +
+            ggplot2::stat_summary(fun = "mean", geom = "point", shape = 43, size = 5, color = "red") +
             ggplot2::labs(x = "Price", y = "Reported Consumption") +
             theme_apa()
         print(bwplt)
@@ -187,5 +187,3 @@ GetDescriptives <- function(dat, bwplot = FALSE, outdir = "../plots/", device = 
     }
     dfres
 }
-
-

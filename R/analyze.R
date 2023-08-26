@@ -33,13 +33,18 @@
 ##' @param groupcol The column name that should be treated as the groups
 ##' @param lobound Optional. A named vector of length 2 ("q0", "alpha") or 3 ("q0", "k", "alpha"), the latter length if k = "fit", specifying the lower bounds.
 ##' @param hibound Optional. A named vector of length 2 ("q0", "alpha") or 3 ("q0", "k", "alpha"), the latter length if k = "fit", specifying the upper bounds.
+##' @param constrainq0 Optional. A number that will be used to constrain Q0 in the fitting process. Currently experimental and only works with a fixed k value.
+##' @param startq0 Optional. A number that will be used to start Q0 in the fitting process. Currently experimental.
+##' @param startalpha Optional. A number that will be used to start Alpha in the fitting process. Currently experimental.
 ##' @return If detailed == FALSE (default), a dataframe of results. If detailed == TRUE, a 3 element list consisting of (1) dataframe of results, (2) list of model objects, (3) list of individual dataframes used in fitting
 ##' @author Brent Kaplan <bkaplan.ku@@gmail.com> Shawn Gilroy <shawn.gilroy@@temple.edu>
 ##' @examples
 ##' ## Analyze using Hursh & Silberberg, 2008 equation with a k fixed to 2
 ##' FitCurves(apt[sample(apt$id, 5), ], "hs", k = 2)
 ##' @export
-FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x", ycol = "y", idcol = "id", groupcol = NULL, lobound, hibound) {
+FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x", 
+                      ycol = "y", idcol = "id", groupcol = NULL, lobound, hibound,
+                      constrainq0 = NULL, startq0 = NULL, startalpha = NULL) {
 
     if (missing(dat)) stop("Need to provide a dataframe!", call. = FALSE)
     origcols <- colnames(dat)
@@ -49,6 +54,8 @@ FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x"
     if (missing(equation)) stop("Need to specify an equation!", call. = FALSE)
     equation <- tolower(equation)
     
+    if (!is.numeric(constrainq0) & !is.null(constrainq0)) stop("Q0 constraint must be a number", call. = FALSE)
+
     if (equation == "linear") {
       out <- FitCurves.linear(dat, equation, agg, detailed, xcol, ycol, idcol, groupcol)
       return(out)
@@ -56,7 +63,7 @@ FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x"
 
     cnames <- c("id", "Equation", "Q0d", "K",
                     "Alpha", "R2", "Q0se", "Alphase", "N", "AbsSS", "SdRes", "Q0Low", "Q0High",
-                    "AlphaLow", "AlphaHigh", "EV", "Omaxd", "Pmaxd", "Notes")
+                    "AlphaLow", "AlphaHigh", "EV", "Omaxd", "Pmaxd", "Omaxa", "Pmaxa", "Notes")
 
     if (!is.null(agg)) {
         agg <- tolower(agg)
@@ -96,7 +103,7 @@ FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x"
         dfresempirical <- GetEmpirical(dat)
     }
 
-    kest <- FALSE  
+    kest <- FALSE
     if (missing(k)) {
         k <- GetK(dat)
         message("No k value specified. Defaulting to empirical mean range +.5")
@@ -160,10 +167,11 @@ FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x"
     }
 
     ## TODO: if groupcol is specified (or not), manufacture vector to loop (paste(agg, grps, sep = "-"))
-
+   
     fo <- switch(equation,
                  "hs" = (log(y)/log(10)) ~ (log(q0)/log(10)) + k * (exp(-alpha * q0 * x) - 1),
                  "koff" = y ~ q0 * 10^(k * (exp(-alpha * q0 * x) - 1)))
+    
     ## loop to fit data
     for (i in seq_len(np)) {
         dfres[i, "id"] <- ps[i]
@@ -186,50 +194,79 @@ FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x"
             k <- kstart
         }
         adf[, "k"] <- k
+        if (!is.null(constrainq0)) {
+          adf[, "q0"] <- constrainq0
+        }
+        
+        if (is.null(startq0)) {
+          startq0 <- max(adf$y)
+        }
+        if (is.null(startalpha)) {
+          startalpha <- 0.01
+        }
 
         if (!kest == "fit") {
-            suppressWarnings(fit <- try(nlmrt::wrapnls(
+          if (is.null(constrainq0)) {
+            suppressWarnings(fit <- try(nlsr::wrapnlsr(
                                  formula = fo,
-                                 start = list(q0 = max(adf$y), alpha = 0.01),
+                                 start = list(q0 = startq0, alpha = startalpha),
                                  lower = c(lower),
                                  upper = c(upper),
-                                 control = list(maxiter = 1000),
                                  data = adf),
                                  silent = TRUE))
           if (inherits(fit, what = "try-error") && nrow(adf) > 2) {
-            suppressWarnings(fit <- try(nlmrt::nlxb(formula = fo,
-                                                    start = list(q0 = max(adf$y), alpha = 0.01),
+            suppressWarnings(fit <- try(nlsr::nlxb(formula = fo,
+                                                    start = list(q0 = startq0, alpha = startalpha),
                                                     lower = c(lower),
                                                     upper = c(upper),
-                                                    control = list(maxiter = 1000),
                                                     data = adf),
                                         silent = TRUE))
-            suppressWarnings(fit <- try(nls2::nls2(fo, 
-                                                   data = adf, 
-                                                   start = fit$coefficients, 
+            suppressWarnings(fit <- try(nls2::nls2(fo,
+                                                   data = adf,
+                                                   start = fit$coefficients,
                                                    algorithm = "brute-force")))
             attributes(fit)$class <- if (fit$m$Rmat()[2,2] == 0) c("nls", "nls2", "error") else c("nls", "nls2")
           }
+          } else if (!is.null(constrainq0)) {
+            suppressWarnings(fit <- try(nlsr::wrapnlsr(
+              formula = fo,
+              start = list(alpha = startalpha),
+              lower = c(lower[2]),
+              upper = c(upper[2]),
+              data = adf),
+              silent = TRUE))
+            if (inherits(fit, what = "try-error") && nrow(adf) > 2) {
+              suppressWarnings(fit <- try(nlsr::nlxb(formula = fo,
+                                                      start = list(alpha = startalpha),
+                                                      lower = c(lower[2]),
+                                                      upper = c(upper[2]),
+                                                      data = adf),
+                                          silent = TRUE))
+              suppressWarnings(fit <- try(nls2::nls2(fo,
+                                                     data = adf,
+                                                     start = fit$coefficients,
+                                                     algorithm = "brute-force")))
+              attributes(fit)$class <- if (fit$m$Rmat()[2,2] == 0) c("nls", "nls2", "error") else c("nls", "nls2")
+            }
+        }
         } else {
-          suppressWarnings(fit <- try(nlmrt::wrapnls(
+          suppressWarnings(fit <- try(nlsr::wrapnlsr(
                                 formula = fo,
-                                start = list(q0 = max(adf$y), k = kstart, alpha = 0.01),
+                                start = list(q0 = startq0, k = kstart, alpha = startalpha),
                                 lower = c(lower),
                                 upper = c(upper),
-                                control = list(maxiter = 1000),
                                 data = adf),
                                 silent = TRUE))
           if (inherits(fit, what = "try-error") && nrow(adf) > 3) {
-            suppressWarnings(fit <- try(nlmrt::nlxb(formula = fo,
-                                   start = list(q0 = max(adf$y), k = kstart, alpha = 0.01),
+            suppressWarnings(fit <- try(nlsr::nlxb(formula = fo,
+                                   start = list(q0 = startq0, k = kstart, alpha = startalpha),
                                    lower = c(lower),
                                    upper = c(upper),
-                                   control = list(maxiter = 1000),
                                    data = adf),
                                    silent = TRUE))
-            suppressWarnings(fit <- try(nls2::nls2(fo, 
-                                                   data = adf, 
-                                                   start = fit$coefficients, 
+            suppressWarnings(fit <- try(nls2::nls2(fo,
+                                                   data = adf,
+                                                   start = fit$coefficients,
                                                    algorithm = "brute-force")))
             attributes(fit)$class <- if (fit$m$Rmat()[2,2] == 0) c("nls", "nls2", "error") else c("nls", "nls2")
           }
@@ -238,7 +275,9 @@ FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x"
         fits[[i]] <- fit
         adfs[[i]] <- adf
 
-        dfres[i, ] <- ExtractCoefs(ps[i], adf, fit, eq = equation, cols = colnames(dfres), kest = kest)
+        dfres[i, ] <- ExtractCoefs(ps[i], adf, fit, eq = equation, 
+                                   cols = colnames(dfres), kest = kest,
+                                   constrainq0 = constrainq0)
 
         newdat <- NULL
         newdat <- data.frame("id" = rep(i, length.out = 10000),
@@ -252,7 +291,7 @@ FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x"
                 newdat$y <-  10^predict(fit, newdata = newdat)
             } else if (equation == "koff") {
                 newdat$y <- predict(fit, newdata = newdat)
-            } 
+            }
         }
         newdats[[i]] <- newdat
     }
@@ -273,11 +312,12 @@ FitCurves <- function(dat, equation, k, agg = NULL, detailed = FALSE, xcol = "x"
     }
 }
 
+##' @noRd
 FitCurves.linear <- function(dat, equation, agg = NULL, detailed = FALSE, xcol = "x", ycol = "y", idcol = "id", groupcol = NULL) {
   cnames <- c("id", "Equation", "L", "b", "a",
               "R2", "Lse", "bse", "ase", "N", "AbsSS", "SdRes", "LLow", "LHigh",
               "bLow", "bHigh", "aLow", "aHigh", "MeanElasticity",
-              "Omaxd", "Pmaxd", "Notes")
+              "Omaxd", "Pmaxd", "Omaxa", "Pmaxa", "Notes")
   if (!is.null(agg)) {
     agg <- tolower(agg)
     if (!any(c("mean", "pooled") %in% agg)) {
@@ -291,64 +331,63 @@ FitCurves.linear <- function(dat, equation, agg = NULL, detailed = FALSE, xcol =
       dat$id <- agg
     }
   }
-  
+
   if (any(dat$y %in% 0)) {
     warning("Zeros found in data not compatible with equation! Dropping zeros!", call. = FALSE)
     dat <- dat[dat$y != 0, , drop = FALSE]
   }
-  
+
   if (any(dat$x %in% 0)) {
     dat <- dat[dat$x != 0, , drop = FALSE]
   }
-  
+
   ps <- unique(dat$id)
   ps <- as.character(ps)
   np <- length(ps)
-  
+
   dfres <- data.frame(matrix(vector(),
                              np,
                              length(cnames),
                              dimnames = list(c(), c(cnames))), stringsAsFactors = FALSE)
-  
+
   fits <- vector(mode = "list", length = np)
   adfs <- vector(mode = "list", length = np)
   newdats <- vector(mode = "list", length = np)
-  
+
   if (!is.null(agg) && agg == "pooled") {
     dfresempirical <- GetEmpirical(tmpdat)
   } else {
     dfresempirical <- GetEmpirical(dat)
   }
-  
+
   fo <- log(y) ~ log(l) + (b * log(x)) - a * x
   ## loop to fit data
   for (i in seq_len(np)) {
     dfres[i, "id"] <- ps[i]
     dfres[i, "Equation"] <- equation
-    
+
     adf <- NULL
     adf <- dat[dat$id == ps[i], ]
-    
+
     if (nrow(adf) == 0) {
       dfres[i, setdiff(colnames(dfres), c("id", "Equation", "N", "Notes"))] <- NA
       dfres[i, "N"] <- 0
       dfres[i, "Notes"] <- "No consumption"
       next()
     }
-    
+
     fit <- NULL
-    fit <- try(nlmrt::wrapnls(
+    fit <- try(nlsr::wrapnlsr(
       formula = fo,
       start = list(l = 1, b = 0, a = 0),
-      control = list(maxiter = 1000),
       data = adf),
       silent = TRUE)
-  
+
   fits[[i]] <- fit
   adfs[[i]] <- adf
-  
+
   dfres[i, ] <- ExtractCoefs.linear(ps[i], adf, fit, eq = equation, cols = colnames(dfres))
-  
+
   newdat <- NULL
   newdat <- data.frame("id" = rep(i, length.out = 10000),
                        "x" = seq(min(adf$x), max(adf$x), length.out = 10000),
@@ -375,7 +414,7 @@ FitCurves.linear <- function(dat, equation, agg = NULL, detailed = FALSE, xcol =
   }
 }
 
-
+##' @noRd
 ExtractCoefs.linear <- function(pid, adf, fit, eq, cols) {
   dfrow <- data.frame(matrix(vector(),
                              1,
@@ -410,7 +449,8 @@ ExtractCoefs.linear <- function(pid, adf, fit, eq, cols) {
 # eq Equation specified
 # cols Column names to populate the dataframe row
 # kest Specification of k value
-ExtractCoefs <- function(pid, adf, fit, eq, cols, kest) {
+##' @noRd
+ExtractCoefs <- function(pid, adf, fit, eq, cols, kest, constrainq0) {
     dfrow <- data.frame(matrix(vector(),
                                1,
                                length(cols),
@@ -423,17 +463,30 @@ ExtractCoefs <- function(pid, adf, fit, eq, cols, kest) {
         dfrow[1, "N"] <- length(adf$k)
         dfrow[1, "AbsSS"] <- if (is.null(deviance(fit))) fit$m$deviance() else deviance(fit)
         dfrow[1, "SdRes"] <- sqrt(dfrow[1, "AbsSS"]/(length(adf$k) - length(fit$m$getPars())))
-        dfrow[1, c("Q0d", "Alpha")] <- if (is.null(coef(fit))) fit$m$getPars()[c("q0", "alpha")] else as.numeric(coef(fit)[c("q0", "alpha")])
+        if (is.null(constrainq0)) {
+          dfrow[1, c("Q0d", "Alpha")] <- if (is.null(coef(fit))) fit$m$getPars()[c("q0", "alpha")] else as.numeric(coef(fit)[c("q0", "alpha")])
+        } else {
+          dfrow[1, c("Q0d")] <- min(adf$q0)
+          dfrow[1, c("Alpha")] <- if (is.null(coef(fit))) fit$m$getPars()[c("alpha")] else as.numeric(coef(fit)[c("alpha")])
+        }
         dfrow[1, "Notes"] <- if ("nls2" %in% class(fit)) "wrapnls failed to converge, reverted to nlxb" else fit$convInfo$stopMessage
         dfrow[1, "K"] <- if (kest == "fit") as.numeric(coef(fit)["k"]) else min(adf$k)
         if (!inherits(fit, what = "error")) {
-          dfrow[1, c("Q0se", "Alphase")] <- summary(fit)[[10]][c("q0", "alpha"), "Std. Error"]
-          dfrow[1, c("Q0Low", "Q0High")] <- nlstools::confint2(fit)["q0", ]
+          if (is.null(constrainq0)) {
+            dfrow[1, c("Q0se", "Alphase")] <- summary(fit)[[10]][c("q0", "alpha"), "Std. Error"]
+            dfrow[1, c("Q0Low", "Q0High")] <- nlstools::confint2(fit)["q0", ]
+            dfrow[1, c("AlphaLow", "AlphaHigh")] <- nlstools::confint2(fit)["alpha", ]
+          } else {
+          dfrow[1, c("Q0se")] <- NA
+          dfrow[1, c("Alphase")] <- summary(fit)[[10]][c("alpha"), "Std. Error"]
+          dfrow[1, c("Q0Low", "Q0High")] <- NA
           dfrow[1, c("AlphaLow", "AlphaHigh")] <- nlstools::confint2(fit)["alpha", ]
+          }
         }
         dfrow[1, "EV"] <- 1/(dfrow[1, "Alpha"] * (dfrow[1, "K"] ^ 1.5) * 100)
         dfrow[1, "Pmaxd"] <- 1/(dfrow[1, "Q0d"] * dfrow[1, "Alpha"] *
                                 (dfrow[1, "K"] ^ 1.5)) * (0.083 * dfrow[1, "K"] + 0.65)
+        dfrow[1, "Pmaxa"] <- beezdemand::GetAnalyticPmax(dfrow[1, "Alpha"], dfrow[1, "K"], dfrow[1, "Q0d"])
         if (eq == "hs") {
             dfrow[1, "R2"] <- if (!inherits(fit, what = "error")) 1.0 - (deviance(fit)/sum((log10(adf$y) - mean(log10(adf$y)))^2)) else NA
             dfrow[1, "Omaxd"] <- (10^(log10(dfrow[1, "Q0d"]) +
@@ -441,6 +494,11 @@ ExtractCoefs <- function(pid, adf, fit, eq, cols, kest) {
                                        (exp(-dfrow[1, "Alpha"] *
                                             dfrow[1, "Q0d"] *
                                             dfrow[1, "Pmaxd"]) - 1)))) * dfrow[1, "Pmaxd"]
+            dfrow[1, "Omaxa"] <- (10^(log10(dfrow[1, "Q0d"]) +
+                                      (dfrow[1, "K"] *
+                                         (exp(-dfrow[1, "Alpha"] *
+                                                dfrow[1, "Q0d"] *
+                                                dfrow[1, "Pmaxa"]) - 1)))) * dfrow[1, "Pmaxa"]
         } else if (eq == "koff") {
             dfrow[1, "R2"] <-  if (!inherits(fit, what = "error")) 1.0 - (deviance(fit)/sum((adf$y - mean(adf$y))^2)) else NA
             dfrow[1, "Omaxd"] <- (dfrow[1, "Q0d"] *
@@ -448,6 +506,11 @@ ExtractCoefs <- function(pid, adf, fit, eq, cols, kest) {
                                        (exp(-dfrow[1, "Alpha"] *
                                             dfrow[1, "Q0d"] *
                                             dfrow[1, "Pmaxd"]) - 1)))) * dfrow[1, "Pmaxd"]
+            dfrow[1, "Omaxa"] <- (dfrow[1, "Q0d"] *
+                                  (10^(dfrow[1, "K"] *
+                                         (exp(-dfrow[1, "Alpha"] *
+                                                dfrow[1, "Q0d"] *
+                                                dfrow[1, "Pmaxa"]) - 1)))) * dfrow[1, "Pmaxa"]
         }
   }
     dfrow[1, "Notes"] <- trim.leading(dfrow[1, "Notes"])
@@ -473,7 +536,7 @@ ExtractCoefs <- function(pid, adf, fit, eq, cols, kest) {
 ##' @author Brent Kaplan <bkaplan.ku@@gmail.com>
 ##' @import graphics
 ##' @import grDevices
-##' @examples 
+##' @examples
 ##' ## Fit aggregated data (mean only) using Hursh & Silberberg, 2008 equation with a k fixed at 2
 ##' FitMeanCurves(apt[sample(apt$id, 5), ], "hs", k = 2, method = "Mean")
 ##' @export
@@ -493,10 +556,10 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
         tobquote = NULL
         if (!is.null(vartext)) {
             dict <- data.frame(Name = c("Q0d", "Alpha", "Intensity", "EV", "Pmaxe",
-                                        "Omaxe", "Pmaxd", "Omaxd",
+                                        "Omaxe", "Pmaxd", "Omaxd", "Pmaxa", "Omaxa",
                                         "K", "Q0se", "Alphase", "R2", "AbsSS"),
                                Variable = c("Q[0[d]]", "alpha", "Intensity", "EV", "P[max[e]]",
-                                            "O[max[e]]", "P[max[d]]",  "O[max[d]]",
+                                            "O[max[e]]", "P[max[d]]",  "O[max[d]]", "P[max[a]]",  "O[max[a]]",
                                             "k", "Q[0[se]]", "alpha[se]", "R^2", "AbsSS"))
             if (any(is.na(dict$Variable[match(vartext, dict$Name)]))) {
                 warning(paste0("Invalid parameter in vartext! I will go on but won't print any parameters. Try again with one of the following: ", dict$Name))
@@ -515,7 +578,7 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
     if (equation == "hs" || equation == "koff") {
         cnames <- c("id", "Equation", "Q0d", "K",
                     "R2", "Alpha", "Q0se", "Alphase", "N", "AbsSS", "SdRes", "Q0Low", "Q0High",
-                    "AlphaLow", "AlphaHigh", "EV", "Omaxd", "Pmaxd", "Notes")
+                    "AlphaLow", "AlphaHigh", "EV", "Omaxd", "Pmaxd", "Omaxa", "Pmaxa", "Notes")
     } else if (equation == "linear") {
         cnames <- c("id", "Equation", "L", "b", "a",
                     "R2", "Lse", "bse", "ase", "N", "AbsSS", "SdRes", "LLow", "LHigh",
@@ -589,30 +652,27 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
 
     if (!equation == "linear") {
         if (!kest == "fit") {
-                suppressWarnings(fit <- try(nlmrt::wrapnls(
+                suppressWarnings(fit <- try(nlsr::wrapnlsr(
                                      formula = fo,
                                      start = list(q0 = 10, alpha = 0.01),
-                                     control = list(maxiter = 1000),
                                      data = dat),
                                      silent = TRUE))
             } else {
-                suppressWarnings(fit <- try(nlmrt::wrapnls(
+                suppressWarnings(fit <- try(nlsr::wrapnlsr(
                                      formula = fo,
                                      start = list(q0 = 10, k = kstart, alpha = 0.01),
-                                     control = list(maxiter = 1000),
                                      data = dat),
                                      silent = TRUE))
             }
     } else if (equation == "linear") {
-        fit <- try(nlmrt::wrapnls(
+        fit <- try(nlsr::wrapnlsr(
                 formula = fo,
                 start = list(l = 1, b = 0, a = 0),
-                control = list(maxiter = 1000),
                 data = dat),
                 silent = TRUE)
     }
 
-    if (class(fit) == "try-error") {
+    if (inherits(fit, "try-error")) {
         dfres[["Notes"]] <- fit[1]
         dfres[["Notes"]] <- strsplit(dfres[["Notes"]], "\n")[[1]][2]
     } else {
@@ -652,6 +712,7 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
             dfres[["AlphaHigh"]] <- nlstools::confint2(fit)[4]
             dfres[["EV"]] <- 1/(dfres[["Alpha"]] * (dfres[["K"]] ^ 1.5) * 100)
             dfres[["Pmaxd"]] <- 1/(dfres[["Q0d"]] * dfres[["Alpha"]] * (dfres[["K"]] ^ 1.5)) * (0.083 * dfres[["K"]] + 0.65)
+            dfres[["Pmaxa"]] <- beezdemand::GetAnalyticPmax(dfres[["Alpha"]], dfres[["K"]], dfres[["Q0d"]])
         }
         if (equation == "hs") {
             dfres[["R2"]] <- 1.0 - (deviance(fit)/sum((log10(dat$y) - mean(log10(dat$y)))^2))
@@ -660,6 +721,11 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
                                       (exp(-dfres[["Alpha"]] *
                                            dfres[["Q0d"]] *
                                            dfres[["Pmaxd"]]) - 1)))) * dfres[["Pmaxd"]]
+            dfres[["Omaxa"]] <- (10^(log10(dfres[["Q0d"]]) +
+                                     (dfres[["K"]] *
+                                      (exp(-dfres[["Alpha"]] *
+                                             dfres[["Q0d"]] *
+                                             dfres[["Pmaxa"]]) - 1)))) * dfres[["Pmaxa"]]
         } else if (equation == "koff") {
             dfres[["R2"]] <- 1.0 - (deviance(fit)/sum((dat$y - mean(dat$y))^2))
             dfres[["Omaxd"]] <- (dfres[["Q0d"]] *
@@ -667,6 +733,11 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
                                       (exp(-dfres[["Alpha"]] *
                                            dfres[["Q0d"]] *
                                            dfres[["Pmaxd"]]) - 1)))) * dfres[["Pmaxd"]]
+            dfres[["Omaxa"]] <- (dfres[["Q0d"]] *
+                                    (10^(dfres[["K"]] *
+                                      (exp(-dfres[["Alpha"]] *
+                                             dfres[["Q0d"]] *
+                                             dfres[["Pmaxa"]]) - 1)))) * dfres[["Pmaxa"]]
         }
     }
     dfres <- merge(dfresempirical, dfres, by = "id")
@@ -677,7 +748,7 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
         minticks <- minTicks(majticks)
 
         datmean <- aggregate(y ~ x, data = dat, mean)
-        if (!class(fit) == "try-error") {
+        if (!inherits(fit, "try-error")) {
             tempnew <- data.frame(x = seq(min(dat$x[dat$x > 0]), max(dat$x), length.out = 1000))
             if (equation == "hs") {
                 tempnew$k = dfres[["K"]]
@@ -729,7 +800,7 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
                 legend("bottomleft", legend = leg, xjust = 0, cex = .7)
             }
             graphics.off()
-        } else if (class(fit) == "try-error") {
+        } else if (inherits(fit, "try-error")) {
             warning(paste0("Unable to fit error: ", strsplit(fit[1], "\n")[[1]][2]))
             xmin <- min(c(dat$x[dat$x > 0], .1))
             xmax <- max(dat$x)
@@ -774,10 +845,11 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
 ##' @param xcol The column name that should be treated as "x" data
 ##' @param ycol The column name that should be treated as "y" data
 ##' @param groupcol The column name that should be treated as the groups
+##' @param start_alpha Optional numeric to inform starting value for alpha
 ##' @return List of results and models
 ##' @author Brent Kaplan <bkaplan.ku@@gmail.com>
 ##' @import stats
-##' @examples 
+##' @examples
 ##' ## Compare two groups using equation by Koffarnus et al., 2015 and a fixed k of 2
 ##' \donttest{
 ##' apt$group <- NA
@@ -787,7 +859,7 @@ FitMeanCurves <- function(dat, equation, k, remq0e = FALSE, replfree = NULL, rem
 ##' }
 ##' @export
 ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, compare = "alpha",
-                   idcol = "id", xcol = "x", ycol = "y", groupcol = NULL) {
+                   idcol = "id", xcol = "x", ycol = "y", groupcol = NULL, start_alpha = .001) {
 
     if (missing(dat)) stop("Need to provide a dataframe!", call. = FALSE)
     origcols <- colnames(dat)
@@ -826,7 +898,7 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
         #kdat <- dat
         #colnames(kdat) <- c("old-id", "id", "x", "y")
         bfk <- try(GetSharedK(dat = dat, equation = equation, sharecol = "group"), silent = TRUE)
-        if (class(bfk) == "character" || class(bfk) == "try-error") {
+        if (inherits(bfk, "character") || inherits(bfk, "try-error")) {
             message(bfk)
             bfk <- GetK(dat)
         }
@@ -849,7 +921,7 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
     if (compare == "q0") {
         paramsalpha <- paste(sprintf("alpha%d*ref%d", 1:nparams, 1:nparams), collapse = "+")
         startalpha <- paste(sprintf("alpha%d", 1:nparams))
-        startingvals <- as.vector(c(10, rep(.001, length(startalpha))))
+        startingvals <- as.vector(c(10, rep(start_alpha, length(startalpha))))
         names(startingvals) <- c("q0", startalpha)
     }
 
@@ -863,7 +935,7 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
             paramsq0 <- paste(sprintf("q0%d*ref%d", 1:nparams, 1:nparams), collapse = "+")
             startq0 <- paste(sprintf("q0%d", 1:nparams))
         }
-        startingvals <- as.vector(c(rep(10, length(startq0)), .001))
+        startingvals <- as.vector(c(rep(10, length(startq0)), start_alpha))
         names(startingvals) <- c(startq0, "alpha")
     }
 
@@ -883,10 +955,10 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
     }
 
     fu <- gsub("k", bfk, fu)
- 
+    fu <- as.formula(fu)
     fit <- NULL
-    fit <- try(nlmrt::wrapnls(fu, data = dat2, start = c(startingvals)), silent = TRUE)
-    if (class(fit) == "try-error") stop("Unable to fit simple model!")
+    fit <- try(nlsr::wrapnlsr(fu, data = dat2, start = c(startingvals)), silent = TRUE)
+    if (inherits(fit, "try-error")) stop("Unable to fit simple model!")
     ## fit complex model (q0 and alpha free, fixed k)
     if (equation == "hs") {
         fo <- "(log(y)/log(10)) ~ (log(q0)/log(10)) + k * (exp(-alpha * q0 * x) - 1)"
@@ -894,7 +966,7 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
         fo <- "y ~ q0  * 10 ^ (k * (exp(-(alpha * q0 * x)) - 1))"
     }
     fo <- gsub("k", bfk, fo)
-
+    fo <- as.formula(fo)
     ## to hold predicted values
     newdat <- data.frame("group" = rep(grps, each = 100000),
                          "x" = rep(seq(min(unique(dat$x)),
@@ -903,20 +975,19 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
                          "y" = NA)
 
     ## on group by group basis
-    lstfits <- list()
-    for (i in grps) {
+    lstfits <- vector(mode = "list", length = length(grps))
+    for (i in 1:length(grps)) {
         #tmp <- subset(dat, id %in% i) ## groupcol %in% i
-        tmp <- subset(dat, group %in% i)
-        lstfits[[i]] <- try(nlmrt::wrapnls(formula = fo,
+        tmp <- subset(dat, group %in% grps[i])
+        lstfits[[i]] <- try(nlsr::wrapnlsr(formula = fo,
                            start = list(q0 = 10, alpha = 0.01),
-                           control = list(maxiter = 1000),
                            data = tmp), silent = TRUE)
         if (equation == "hs") {
-            newdat[newdat$group == i, "y"] <- 10^predict(lstfits[[i]],
-                                                         subset(newdat, group %in% i, select = "x"))
+            newdat[newdat$group == grps[i], "y"] <- 10^predict(lstfits[[i]],
+                                                         subset(newdat, group %in% grps[i], select = "x"))
         } else if (equation == "koff") {
-            newdat[newdat$group == i, "y"] <- predict(lstfits[[i]],
-                                                         subset(newdat, group %in% i, select = "x"))
+            newdat[newdat$group == grps[i], "y"] <- predict(lstfits[[i]],
+                                                         subset(newdat, group %in% grps[i], select = "x"))
         }
 
     }
@@ -936,7 +1007,7 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
 
     cnames <- c("Group", "Q0d", "K",
                 "R2", "Alpha", "N", "AbsSS", "SdRes", "EV",
-                "Omaxd", "Pmaxd", "Notes", "F-Test")
+                "Omaxd", "Pmaxd", "Omaxa", "Pmaxa", "Notes", "F-Test")
 
     dfres <- data.frame(matrix(vector(),
                              (nparams * 2) + 2,
@@ -956,6 +1027,7 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
         dfres[i, "EV"] <- 1/(dfres[i, "Alpha"] * (dfres[i, "K"] ^ 1.5) * 100)
         dfres[i, "Pmaxd"] <- 1/(dfres[i, "Q0d"] * dfres[i, "Alpha"] *
                                 (dfres[i, "K"] ^ 1.5)) * (0.083 * dfres[i, "K"] + 0.65)
+        dfres[i, "Pmaxa"] <- beezdemand::GetAnalyticPmax(dfres[i, "Alpha"], dfres[i, "K"], dfres[i, "Q0d"])
         if (equation == "hs") {
             dfres[i, "R2"] <- 1.0 - (deviance(fit)/sum((log10(dat2$y) - mean(log10(dat2$y)))^2))
             dfres[i, "Omaxd"] <- (10^(log10(dfres[i, "Q0d"]) +
@@ -963,6 +1035,11 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
                                        (exp(-dfres[i, "Alpha"] *
                                             dfres[i, "Q0d"] *
                                             dfres[i, "Pmaxd"]) - 1)))) * dfres[i, "Pmaxd"]
+            dfres[i, "Omaxa"] <- (10^(log10(dfres[i, "Q0d"]) +
+                                      (dfres[i, "K"] *
+                                         (exp(-dfres[i, "Alpha"] *
+                                                dfres[i, "Q0d"] *
+                                                dfres[i, "Pmaxa"]) - 1)))) * dfres[i, "Pmaxa"]
         } else if (equation == "koff") {
             dfres[i, "R2"] <-  1.0 -(deviance(fit)/sum((dat2$y - mean(dat2$y))^2))
             dfres[i, "Omaxd"] <- (dfres[i, "Q0d"] *
@@ -970,6 +1047,11 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
                                        (exp(-dfres[i, "Alpha"] *
                                             dfres[i, "Q0d"] *
                                             dfres[i, "Pmaxd"]) - 1)))) * dfres[i, "Pmaxd"]
+            dfres[i, "Omaxa"] <- (dfres[i, "Q0d"] *
+                                  (10^(dfres[i, "K"] *
+                                         (exp(-dfres[i, "Alpha"] *
+                                                dfres[i, "Q0d"] *
+                                                dfres[i, "Pmaxa"]) - 1)))) * dfres[i, "Pmaxa"]
         }
         dfres[i, "N"] <- NROW(dat2$y)
         dfres[i, "AbsSS"] <- deviance(fit)
@@ -986,6 +1068,7 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
         dfres[i, "EV"] <- 1/(dfres[i, "Alpha"] * (dfres[i, "K"] ^ 1.5) * 100)
         dfres[i, "Pmaxd"] <- 1/(dfres[i, "Q0d"] * dfres[i, "Alpha"] *
                                 (dfres[i, "K"] ^ 1.5)) * (0.083 * dfres[i, "K"] + 0.65)
+        dfres[i, "Pmaxa"] <- beezdemand::GetAnalyticPmax(dfres[i, "Alpha"], dfres[i, "K"], dfres[i, "Q0d"])
         if (equation == "hs") {
             dfres[i, "R2"] <- 1.0 - (deviance(tmp)/sum((log10(subset(dat, group %in% grps[j])$y) -
                                                         mean(log10(subset(dat, group %in% grps[j])$y)))^2))
@@ -994,6 +1077,11 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
                                        (exp(-dfres[i, "Alpha"] *
                                             dfres[i, "Q0d"] *
                                             dfres[i, "Pmaxd"]) - 1)))) * dfres[i, "Pmaxd"]
+            dfres[i, "Omaxa"] <- (10^(log10(dfres[i, "Q0d"]) +
+                                      (dfres[i, "K"] *
+                                       (exp(-dfres[i, "Alpha"] *
+                                              dfres[i, "Q0d"] *
+                                              dfres[i, "Pmaxa"]) - 1)))) * dfres[i, "Pmaxa"]
         } else if (equation == "koff") {
             dfres[i, "R2"] <-  1.0 -(deviance(tmp)/sum((subset(dat, group %in% grps[j])$y -
                                                        mean(subset(dat, group %in% grps[j])$y))^2))
@@ -1002,6 +1090,11 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
                                        (exp(-dfres[i, "Alpha"] *
                                             dfres[i, "Q0d"] *
                                             dfres[i, "Pmaxd"]) - 1)))) * dfres[i, "Pmaxd"]
+            dfres[i, "Omaxa"] <- (dfres[i, "Q0d"] *
+                                  (10^(dfres[i, "K"] *
+                                         (exp(-dfres[i, "Alpha"] *
+                                                dfres[i, "Q0d"] *
+                                                dfres[i, "Pmaxa"]) - 1)))) * dfres[i, "Pmaxa"]
         }
         dfres[i, "N"] <- NROW(subset(dat, group %in% grps[j])$y)
         dfres[i, "AbsSS"] <- deviance(tmp)
@@ -1026,6 +1119,7 @@ ExtraF <- function(dat, equation = "hs", groups = NULL, verbose = FALSE, k, comp
 
 
 # Calculate sum of squares for exponential demand
+##' @noRd
 getSumOfSquaresExponential <- function(presort, index, k, Y, X) {
   projections <- (log(presort[index,]$Q0)/log(10)) + k * (exp(-presort[index,]$Alpha * presort[index,]$Q0 * X) - 1)
   sqResidual <- (log(Y)/log(10) - projections)^2
@@ -1033,6 +1127,7 @@ getSumOfSquaresExponential <- function(presort, index, k, Y, X) {
 }
 
 # Calculate sum of squares for exponentiated demand
+##' @noRd
 getSumOfSquaresExponentiated <- function(presort, index, k, Y, X) {
   projections <- presort[index,]$Q0 * 10^(k * (exp(-presort[index,]$Alpha * presort[index,]$Q0 * X) - 1))
   sqResidual <- (Y - projections)^2
@@ -1048,7 +1143,7 @@ getSumOfSquaresExponentiated <- function(presort, index, k, Y, X) {
 ##' @param sharecol Character for column to find shared k. Default to "group" but can loop based on id.
 ##' @return Numeric value of shared k
 ##' @author Brent Kaplan <bkaplan.ku@@gmail.com> Shawn P Gilroy <shawn.gilroy@@temple.edu>
-##' @examples 
+##' @examples
 ##' ## Find a shared k value across datasets indicated by id
 ##' \donttest{
 ##' GetSharedK(apt, "hs", sharecol = "id")
@@ -1162,7 +1257,7 @@ GetSharedK <- function(dat, equation, sharecol = "group") {
     }
 
     message(sprintf("Best k fround at %s = err: %s", bestFrame$K[1], bestSS))
-    
+
     vecStartQ0 <- bestFrame$Q0
     vecStartAlpha <- bestFrame$Alpha
     vecStartK <- bestFrame$K
@@ -1177,21 +1272,21 @@ GetSharedK <- function(dat, equation, sharecol = "group") {
     names(maxvals) <- c(startq0, startalpha, "k")
 
     fo <- sprintf("log(y)/log(10) ~ (%s) + k * (exp(-(%s) * (%s) * x)-1)", paramslogq0, paramsalpha, paramsq0)
-
+    fo <- as.formula(fo)
     message("Searching for shared K, this can take a while...")
     fit <- NULL
 
-    fit <- nlmrt::nlxb(fo, data = dat2,
+    fit <- nlsr::nlxb(fo, data = dat2,
                        start = c(startingvals),
                        lower = c(minvals),
                        upper = c(maxvals),
-                       control = nls.control(maxiter = 30,
-                                             tol = 1e-05,
-                                             warnOnly = TRUE,
-                                             minFactor = 1/1024),
+                       # control = nls.control(maxiter = 30,
+                       #                       tol = 1e-05,
+                       #                       warnOnly = TRUE,
+                       #                       minFactor = 1/1024),
                        trace = FALSE)
 
-    if (!class(fit) == "try-error") {
+    if (!inherits(fit, "try-error")) {
       sharedk <- fit$coefficients["k"]
       return(sharedk)
     } else {
@@ -1232,7 +1327,7 @@ GetSharedK <- function(dat, equation, sharecol = "group") {
     currentData <- NA
 
     bestFrame <- data.frame()
-    
+
     message("Beginning search for best-starting k")
     for (k in startK) {
       # message(sprintf("Scanning for starting values... %s of %s (K = %s)",
@@ -1287,22 +1382,22 @@ GetSharedK <- function(dat, equation, sharecol = "group") {
     names(maxvals) <- c(startq0, startalpha, "k")
 
     fo <- sprintf("y ~ (%s) * 10^(k * (exp(-(%s) * (%s) * x) - 1))", paramsq0, paramsalpha, paramsq0)
-
+    fo <- as.formula(fo)
     message("Searching for shared K, this can take a while...")
 
     fit <- NULL
-    
-    fit <- nlmrt::nlxb(fo, data = dat2,
+
+    fit <- nlsr::nlxb(fo, data = dat2,
                        start = c(startingvals),
                        lower = c(minvals),
                        upper = c(maxvals),
-                       control = nls.control(maxiter = 30,
-                                             tol = 1e-05,
-                                             warnOnly = TRUE,
-                                             minFactor = 1/1024),
+                       # control = nls.control(maxiter = 30,
+                       #                       tol = 1e-05,
+                       #                       warnOnly = TRUE,
+                       #                       minFactor = 1/1024),
                        trace = FALSE)
-   
-    if (!class(fit) == "try-error") {
+
+    if (!inherits(fit, "try-error")) {
       sharedk <- fit$coefficients["k"]
       return(sharedk)
     } else {
@@ -1332,6 +1427,48 @@ GetK <- function(dat, mnrange = TRUE) {
     }
 }
 
+##' ...
+##'
+##' ...
+##' @title Get pmax
+##' @param Alpha alpha parameter
+##' @param K k parameter ( > lower limit )
+##' @param Q0 Q0
+##' @return Numeric
+##' @author Shawn Gilroy <sgilroy1@@lsu.edu>
+##' @export
+GetAnalyticPmax <- function(Alpha, K, Q0) {
+  if (K <= exp(1)/log(10)) {
+    return (beezdemand::GetAnalyticPmaxFallback(K, Alpha, Q0));
+  } else {
+    return (-beezdemand::lambertW(z = -1/log((10^K))) / (Alpha * Q0));
+  }
+}
+
+##' Fallback method for Analytic Pmax
+##'
+##' Derivative-based optimization strategy
+##' @title Analytic Pmax Fallback
+##' @param K_ k parameter
+##' @param A_ alpha parameter
+##' @param Q0_ q0 parameter
+##' @return numeric
+##' @author Shawn Gilroy <sgilroy1@@lsu.edu>
+##' @export
+GetAnalyticPmaxFallback <- function(K_, A_, Q0_) {
+  result <- optimx::optimx(par = c((1/(Q0_ * A_ * K_^1.5)) * (0.083 * K_ + 0.65)),
+                           fn = function(par, data) {
+                             abs((log((10^data$K)) * (-data$A * data$Q0 * par[1] * exp(-data$A * data$Q0 * par[1]))) + 1)
+                           },
+                           data = data.frame(Q0 = Q0_,
+                                             A = A_,
+                                             K = K_),
+                           method = c("BFGS"),
+                           control=list(maxit=2500))
+
+  return(result$p1)
+}
+
 ##' Calculates empirical measures for purchase task data
 ##'
 ##' Will calculate and return the following empirical measures: Intensity, BP0, BP1, Omax, and Pmax
@@ -1342,13 +1479,13 @@ GetK <- function(dat, mnrange = TRUE) {
 ##' @param ycol The column name that should be treated as "y" data
 ##' @return Data frame of empirical measures
 ##' @author Brent Kaplan <bkaplan.ku@@gmail.com>
-##' @examples 
+##' @examples
 ##' ## Obtain empirical measures
 ##' GetEmpirical(apt)
 ##' @export
 GetEmpirical <- function(dat, xcol = "x", ycol = "y", idcol = "id") {
     dat <- CheckCols(dat, xcol = xcol, ycol = ycol, idcol = idcol)
-    
+
     ps <- unique(dat$id)
     ps <- as.character(ps)
     np <- length(ps)

@@ -4,9 +4,19 @@
 \alias{ExtraF}
 \title{ExtraF}
 \usage{
-ExtraF(dat, equation = "hs", groups = NULL, verbose = FALSE, k,
-  compare = "alpha", idcol = "id", xcol = "x", ycol = "y",
-  groupcol = NULL)
+ExtraF(
+  dat,
+  equation = "hs",
+  groups = NULL,
+  verbose = FALSE,
+  k,
+  compare = "alpha",
+  idcol = "id",
+  xcol = "x",
+  ycol = "y",
+  groupcol = NULL,
+  start_alpha = 0.001
+)
 }
 \arguments{
 \item{dat}{Long form data frame}
@@ -28,6 +38,8 @@ ExtraF(dat, equation = "hs", groups = NULL, verbose = FALSE, k,
 \item{ycol}{The column name that should be treated as "y" data}
 
 \item{groupcol}{The column name that should be treated as the groups}
+
+\item{start_alpha}{Optional numeric to inform starting value for alpha}
 }
 \value{
 List of results and models

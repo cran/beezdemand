@@ -2,7 +2,7 @@
 % Please edit documentation in R/analyze.R
 \name{FitMeanCurves}
 \alias{FitMeanCurves}
-\title{Fit Pooled Curves}
+\title{Fit Pooled/Mean Curves}
 \usage{
 FitMeanCurves(
   dat,
@@ -48,12 +48,23 @@ FitMeanCurves(
 Data frame
 }
 \description{
-Fits curve to pooled data
+Fits curve to pooled or mean data
+}
+\details{
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#superseded}{\figure{lifecycle-superseded.svg}{options: alt='[Superseded]'}}}{\strong{[Superseded]}}
+
+\code{FitMeanCurves()} has been superseded by \code{\link[=fit_demand_fixed]{fit_demand_fixed()}} with the
+\code{agg} parameter. \code{FitMeanCurves()} will continue to work but is no longer
+recommended for new code. See \code{vignette("migration-guide")} for migration
+instructions.
 }
 \examples{
 ## Fit aggregated data (mean only) using Hursh & Silberberg, 2008 equation with a k fixed at 2
 FitMeanCurves(apt[sample(apt$id, 5), ], "hs", k = 2, method = "Mean")
 }
+\seealso{
+\code{\link[=fit_demand_fixed]{fit_demand_fixed()}} for the modern interface with \code{agg} parameter
+}
 \author{
-Brent Kaplan <bkaplan.ku@gmail.com>
+Brent Kaplan \href{mailto:bkaplan.ku@gmail.com}{bkaplan.ku@gmail.com}
 }

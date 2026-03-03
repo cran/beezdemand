@@ -13,7 +13,7 @@
 ## GNU General Public License for more details.
 ##
 ## You should have received a copy of the GNU General Public License
-## along with beezdemand.  If not, see <http://www.gnu.org/licenses/gpl-2.0.html>.
+## along with beezdemand.  If not, see <https://www.gnu.org/licenses/gpl-2.0.html>.
 ##
 ## summary
 ## R script for changing values and splitting data
@@ -94,33 +94,33 @@ RecodeOutliers <- function(df, outval = 3.29, unitshigher = 0) {
         x <- df[, i]
         ztmp <- scale(df[, i])
         if (!any(ztmp >= outval | ztmp <= -outval, na.rm = TRUE)) {
-            print(paste0("No outliers detected in column: ", i, "."))
+            message(paste0("No outliers detected in column: ", i, "."))
             dfout[, i] <- x
         } else {
             if (any(ztmp >= outval, na.rm = TRUE)) {
                 replind <- which(ztmp >= outval)
                 replval <- x[which(ztmp == max(ztmp[ztmp < outval], na.rm = TRUE))][[1]] + unitshigher
-                print(paste0(length(replind), " outliers greater than ", outval, "SDs detected in: ", i, "."))
+                message(paste0(length(replind), " outliers greater than ", outval, "SDs detected in: ", i, "."))
                 totoutliers <- totoutliers + length(replind)
                 for (j in seq(length(replind))) {
-                    print(paste0("Recoding ", x[replind[j]], " with ", replval, "."))
+                    message(paste0("Recoding ", x[replind[j]], " with ", replval, "."))
                     x[replind[j]] <- replval
                 }
             }
             if (any(ztmp <= -outval, na.rm = TRUE)) {
                 replind <- which(ztmp <= -outval)
                 replval <- x[which(ztmp == min(ztmp[ztmp > -outval], na.rm = TRUE))][[1]] - unitshigher
-                print(paste0(length(replind), " outliers less than ", outval, "SDs detected in: ", i, "."))
+                message(paste0(length(replind), " outliers less than ", outval, "SDs detected in: ", i, "."))
                 totoutliers <- totoutliers + length(replind)
                 for (j in seq(length(replind))) {
-                    print(paste0("Recoding ", x[replind[j]], " with ", replval, "."))
+                    message(paste0("Recoding ", x[replind[j]], " with ", replval, "."))
                     x[replind[j]] <- replval
                 }
             }
            dfout[, i] <- x
         }
     }
-    print(paste0("A total of ", totoutliers, " outlying values were replaced"))
+    message(paste0("A total of ", totoutliers, " outlying values were replaced"))
     invisible(dfout)
 }
 

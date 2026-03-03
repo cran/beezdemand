@@ -1,0 +1,407 @@
+---
+title: "Mixed-Effects Demand Modeling with `beezdemand`"
+author: "Brent Kaplan"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Mixed-Effects Demand Modeling with `beezdemand`}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",   # R console style comments
+  dev = "png",
+  dpi = 144,
+  fig.width = 7,
+  fig.height = 5,
+  warning = FALSE,  # Suppress warnings for cleaner output
+  message = FALSE,  # Suppress messages for cleaner output
+  cache = TRUE,     # Cache for faster rebuilds
+  cache.path = "mixed-demand_cache/",
+  autodep = TRUE
+)
+
+library(beezdemand)
+library(dplyr)
+library(ggplot2)
+
+data("apt", package = "beezdemand", envir = environment())
+data("ko", package = "beezdemand", envir = environment())
+
+cache_key_object <- function(x) {
+  tmp <- tempfile(fileext = ".rds")
+  saveRDS(x, tmp)
+  on.exit(unlink(tmp), add = TRUE)
+  unname(tools::md5sum(tmp))
+}
+
+# Invalidate cache when the package data changes.
+knitr::opts_chunk$set(
+  cache.extra = list(
+    beezdemand_version = as.character(utils::packageVersion("beezdemand")),
+    apt = cache_key_object(apt),
+    ko = cache_key_object(ko)
+  )
+)
+```
+
+# Introduction
+
+This vignette demonstrates how to perform mixed-effects nonlinear modeling
+of behavioral economic demand data using the beezdemand package. We will focus
+on the `fit_demand_mixed()` function and its associated helper functions for
+extracting results, making predictions, and visualizing fits. These models
+allow for individual differences (random effects) and the examination of how
+various factors (fixed effects) influence demand parameters like $Q_{0}$ (maximum
+consumption at zero price) and $\alpha$ (sensitivity of demand to price). The
+parameters $Q_{0}$ and $\alpha$ are estimated on a log10 scale for numerical stability,
+but reporting functions will provide them on their natural, interpretable scale.
+
+For advanced topics including multi-factor models, collapsing factor levels,
+estimated marginal means, pairwise comparisons, continuous covariates, and
+complex random effects structures, see `vignette("mixed-demand-advanced")`.
+
+## Data Preparation
+
+For these examples, we will use the apt and ko datasets, which is
+assumed to be available and pre-processed.
+
+The apt dataset should contain:
+
+- id: A unique identifier for each subject.
+
+- x: The price of the drug.
+
+- y: The consumption of the drug.
+
+The ko dataset should contain:
+
+- monkey: A subject or group identifier for random effects.
+
+- x: The price of the commodity (in this case the fixed-ratio requirement).
+
+- y: Raw consumption values. This is typically used with the simplified exponentiated equation.
+
+- y_ll4: Consumption, ll4 transformed. This is typically used with the zben equation.
+
+- Factor columns like drug and dose.
+
+
+```{r}
+quick_nlme_control <- nlme::nlmeControl(
+  msMaxIter = 100,
+  niterEM = 20,
+  maxIter = 100, # Low iterations for speed
+  pnlsTol = 0.1,
+  tolerance = 1e-4, # Looser tolerance
+  opt = "nlminb",
+  msVerbose = FALSE
+)
+```
+
+## Fitting Demand Models with fit_demand_mixed()
+
+The core function for fitting nonlinear mixed-effects demand models is `fit_demand_mixed()`.
+
+### APT Fit and Plot
+
+#### LL4 transformation with ZBEn
+
+```{r apt_zben_fit}
+apt_ll4 <- apt |>
+  mutate(y_ll4 = ll4(y))
+
+fit_apt_zben <- fit_demand_mixed(
+  data = apt_ll4,
+  y_var = "y_ll4",
+  x_var = "x",
+  id_var = "id",
+  equation_form = "zben",
+  nlme_control = quick_nlme_control,
+  start_value_method = "heuristic"
+)
+print(fit_apt_zben)
+```
+
+```{r apt_zben_plot, cache = FALSE}
+plot(
+  fit_apt_zben,
+  inv_fun = ll4_inv,
+  y_trans = "pseudo_log",
+  x_trans = "pseudo_log",
+  show_pred_lines = c("population", "individual")
+) +
+  facet_wrap(
+    ~id
+  )
+```
+
+#### Simplified Exponential
+
+```{r apt_simplified_fit}
+fit_apt_simplified <- fit_demand_mixed(
+  data = apt_ll4,
+  y_var = "y",
+  x_var = "x",
+  id_var = "id",
+  equation_form = "simplified",
+  nlme_control = quick_nlme_control,
+  start_value_method = "heuristic"
+)
+print(fit_apt_simplified)
+```
+
+```{r apt_simplified_plot, cache = FALSE}
+plot(
+  fit_apt_simplified,
+  x_trans = "pseudo_log",
+  show_pred_lines = c("population", "individual")
+) +
+  facet_wrap(
+    ~id
+  )
+```
+
+#### Koffarnus (Exponentiated) Equation Form
+
+`fit_demand_mixed()` also supports the Koffarnus et al. (2015) equation via
+`equation_form = "exponentiated"`. By default, the scaling constant `k` will be computed
+from the data range (you can also specify it directly).
+
+```{r apt_exponentiated_fit}
+fit_apt_exponentiated <- fit_demand_mixed(
+  data = apt,
+  y_var = "y",
+  x_var = "x",
+  id_var = "id",
+  equation_form = "exponentiated",
+  k = NULL,
+  nlme_control = quick_nlme_control,
+  start_value_method = "heuristic"
+)
+print(fit_apt_exponentiated)
+```
+
+## Inspecting Fits (tidy / glance / augment)
+
+All modern model classes support `tidy()`, `glance()`, and `augment()` to
+standardize programmatic access to estimates, model summaries, and residuals.
+
+```{r inspect_fit}
+glance(fit_apt_zben)
+tidy(fit_apt_zben) |> head()
+augment(fit_apt_zben) |> head()
+```
+
+## Diagnostics
+
+Use `check_demand_model()` and the residual plotting helpers as standard
+post-fit checks.
+
+```{r diagnostics}
+check_demand_model(fit_apt_zben)
+plot_residuals(fit_apt_zben)$fitted
+```
+
+### Basic Model (No Factors)
+
+This model estimates global $Q_{0}$ and $\alpha$ parameters with random effects for subjects.
+
+```{r}
+# Make sure a similar 'fit_no_factors' was created successfully in your environment
+# For the vignette, let's create one that is more likely to converge quickly
+# by using only Alfentanil data, which is less complex than the full dataset.
+ko_alf <- ko[ko$drug == "Alfentanil", ]
+
+fit_no_factors_vignette <- fit_demand_mixed(
+  data = ko_alf,
+  y_var = "y_ll4",
+  x_var = "x",
+  id_var = "monkey",
+  equation_form = "zben",
+  nlme_control = quick_nlme_control, # Use quicker control for vignette
+  start_value_method = "heuristic" # Heuristic is faster for simple model
+)
+print(fit_no_factors_vignette)
+```
+
+The output shows the model call, selected equation form, and if the model converged, it prints the nlme model summary.
+
+### Model with One Factor
+
+Let's model $Q_{0}$ and $\alpha$ as varying by dose for Alfentanil.
+
+```{r}
+fit_one_factor_dose <- fit_demand_mixed(
+  data = ko_alf,
+  y_var = "y_ll4",
+  x_var = "x",
+  id_var = "monkey",
+  factors = "dose",
+  equation_form = "zben",
+  nlme_control = quick_nlme_control,
+  start_value_method = "heuristic"
+)
+print(fit_one_factor_dose)
+```
+
+### Inspecting Model Fits
+
+Once a model is fit, you can inspect it using several S3 methods.
+
+```{r}
+# Summary
+summary(fit_one_factor_dose)
+
+# Fixed effects
+coef(fit_one_factor_dose, type = "fixed")
+
+# Random effects (deviations from fixed)
+head(coef(fit_one_factor_dose, type = "random"))
+
+# Subject-specific coefficients (fixed + random)
+head(coef(fit_one_factor_dose, type = "combined"))
+
+# Access nlme fixef/ranef directly
+nlme::fixef(fit_one_factor_dose)
+utils::head(nlme::ranef(fit_one_factor_dose))
+
+# Start values that were used for the NLME fit
+fit_one_factor_dose$start_values_used
+```
+
+### Making Predictions (predict())
+
+The S3 `predict()` method can generate population-level or group-level predictions.
+
+```{r}
+# Population-level predictions (log10 scale for 'zben')
+preds_pop_log <- predict(fit_one_factor_dose, level = 0)
+head(preds_pop_log)
+
+# Population-level predictions (natural scale, back-transformed)
+preds_pop_natural <- predict(
+  fit_one_factor_dose,
+  level = 0,
+  inv_fun = ll4_inv
+)
+head(preds_pop_natural)
+
+# Group-level predictions for first few data points
+sample_newdata <- fit_one_factor_dose$data[1:5, ]
+preds_group_log <- predict(fit_one_factor_dose, newdata = sample_newdata, level = 1)
+preds_group_log
+```
+
+## Visualizing Model Fits with `plot()`
+
+The `beezdemand` package provides an S3 `plot()` method for `beezdemand_nlme`
+objects, built using `ggplot2`, to help visualize the fitted demand curves against observed data.
+
+**Key Features:**
+
+*   **Observed Data:** Can display the original data points.
+
+*   **Prediction Lines:** Plots model-predicted demand curves at the
+population level (fixed effects, `pred_level = 0`) or group/subject level
+(fixed + random effects, `pred_level = 1`).
+
+*   **Inverse Transformation (`inv_fun`):** Allows back-transformation of
+the y-axis and predictions to the natural scale (e.g., from log10 consumption
+back to raw consumption units).
+
+*   **Aesthetic Mapping:** Factors can be mapped to `color`, `linetype`
+(for lines), and `shape` (for points).
+
+*   **Faceting:** Supports `ggplot2` faceting via `facet_formula`.
+
+*   **Axis Transformations:** Allows `x_trans` and `y_trans` (e.g., "log10", "pseudo_log").
+
+### Example 1: Plotting a Single-Factor Model
+
+Let's use `fit_one_factor_dose` (modeling demand for Alfentanil
+by `dose`, with `y_ll4` as the dependent variable).
+
+```{r plot_one_factor, cache = FALSE, fig.cap="Demand curves for Alfentanil by dose (population level). y-axis on natural scale."}
+plot(
+  fit_one_factor_dose,
+  inv_fun = ll4_inv,
+  color_by = "dose",
+  shape_by = "dose",
+  observed_point_alpha = 0.7,
+  title = "Alfentanil Demand by Dose (Population Fit)"
+)
+```
+
+This plot shows the population-level demand curves for each dose of Alfentanil.
+The y-axis has been back-transformed to the natural consumption scale using inv_fun.
+
+### Example 2: Plotting Subject-Specific Lines
+
+We can also visualize the individual subject fits by setting `show_pred_lines = "individual"`.
+
+```{r plot_one_factor_individual, cache = FALSE}
+plot(
+  fit_one_factor_dose,
+  show_pred_lines = "individual",
+  inv_fun = ll4_inv,
+  color_by = "dose",
+  observed_point_alpha = 0.4,
+  y_trans = "pseudo_log",
+  ind_line_alpha = .5,
+  title = "Alfentanil Demand by Dose (Subject-Specific Fits)"
+) +
+  ggplot2::guides(color = guide_legend(override.aes = list(alpha = 1))) +
+  facet_grid(~monkey)
+```
+
+Here, each thin line represents the fitted curve for an individual subject (monkey), colored by dose.
+
+### Example 3: Customizing Axes (e.g., Log Scale)
+
+You can use `x_trans` and `y_trans` for axis transformations.
+
+```{r plot_one_factor_axes, cache = FALSE}
+plot(
+  fit_one_factor_dose,
+  inv_fun = ll4_inv,
+  color_by = "dose",
+  x_trans = "pseudo_log",
+  y_trans = "pseudo_log",
+  title = "Alfentanil Demand (Log10 Price Scale)"
+)
+```
+
+Users can further customize the returned ggplot
+object by adding more layers or theme adjustments. For instance, to add custom
+axis limits or breaks:
+
+```r
+plot_object +
+    ggplot2::scale_x_continuous(
+        limits = c(0, 1000),
+        breaks = c(0, 100, 500, 1000)
+    )
+```
+
+# Conclusion
+
+The beezdemand package provides a suite of tools for robustly fitting
+nonlinear mixed-effects demand models and interpreting their parameters. By
+parameterizing $Q_{0}$ and $\alpha$ on the log10 scale, numerical stability is enhanced,
+while helper functions allow for easy back-transformation and interpretation on
+the natural scale.
+
+# See Also
+
+- `vignette("mixed-demand-advanced")` -- Multi-factor models, collapsing levels, EMMs, comparisons, covariates, and trends
+- `vignette("model-selection")` -- Choosing the right model class
+- `vignette("fixed-demand")` -- Fixed-effect demand modeling
+- `vignette("hurdle-demand-models")` -- Two-part hurdle demand models
+- `vignette("cross-price-models")` -- Cross-price demand analysis
+- `vignette("group-comparisons")` -- Group comparisons
+- `vignette("migration-guide")` -- Migrating from `FitCurves()`
+- `vignette("beezdemand")` -- Getting started with beezdemand

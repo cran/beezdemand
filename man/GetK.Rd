@@ -18,11 +18,20 @@ Numeric
 Calculates a k value by looking for the max/min consumption across entire dataset and adds .5 to that range
 }
 \details{
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#superseded}{\figure{lifecycle-superseded.svg}{options: alt='[Superseded]'}}}{\strong{[Superseded]}}
+
+\code{GetK()} has been superseded by \code{\link[=get_k]{get_k()}}, which provides explicit parameters
+for the adjustment value and optional verbose output for better transparency.
+\code{GetK()} will continue to work but is no longer recommended for new code.
+
 Will look for maximum/minimum greater zero
 }
 \examples{
 GetK(apt)
 }
+\seealso{
+\code{\link[=get_k]{get_k()}} for the modern interface
+}
 \author{
-Brent Kaplan <bkaplan.ku@gmail.com>
+Brent Kaplan \href{mailto:bkaplan.ku@gmail.com}{bkaplan.ku@gmail.com}
 }

@@ -13,7 +13,7 @@
 ## GNU General Public License for more details.
 ##
 ## You should have received a copy of the GNU General Public License
-## along with beezdemand.  If not, see <http://www.gnu.org/licenses/gpl-2.0.html>.
+## along with beezdemand.  If not, see <https://www.gnu.org/licenses/gpl-2.0.html>.
 ##
 ## summary
 ## R script for summarizing demand data
@@ -25,7 +25,7 @@
 ##' @title Systematic Purchase Task Data Checker
 ##' @param dat Dataframe in long form. Colums are id, x, y.
 ##' @param deltaq Numeric vector of length equal to one. The criterion by which the relative change in quantity purchased will be compared. Relative changes in quantity purchased below this criterion will be flagged. Default value is 0.025.
-##' @param bounce Numeric vector of length equal to one. The criterion by which the number of price-to-price increases in consumption that exceed 25\% of initial consumption at the lowest price, expressed relative to the total number of price increments, will be compared. The relative number of price-to-price increases above this criterion will be flagged. Default value is 0.10.
+##' @param bounce Numeric vector of length equal to one. The criterion by which the number of price-to-price increases in consumption that exceed 25% of initial consumption at the lowest price, expressed relative to the total number of price increments, will be compared. The relative number of price-to-price increases above this criterion will be flagged. Default value is 0.10.
 ##' @param reversals Numeric vector of length equal to one. The criterion by which the number of reversals from number of consecutive (see ncons0) 0s will be compared. Number of reversals above this criterion will be flagged. Default value is 0.
 ##' @param ncons0 Numer of consecutive 0s prior to a positive value is used to flag for a reversal. Value can be either 1 (relatively more conservative) or 2 (default; as recommended by Stein et al., (2015).
 ##' @return Dataframe
@@ -127,19 +127,32 @@ CheckUnsystematic <- function(dat, deltaq = 0.025, bounce = 0.10, reversals = 0,
 
 ##' Calculates descriptive statistics from purchase task data.
 ##'
+##' `r lifecycle::badge("superseded")`
+##'
+##' `GetDescriptives()` has been superseded by [get_descriptive_summary()], which
+##' provides a modern S3 interface with standardized methods (`print()`, `summary()`, `plot()`).
+##' `GetDescriptives()` will continue to work but is no longer recommended for new code.
+##'
 ##' Provides the following descriptive statistics from purchase task data at each price: mean consumption, median consumption, standard deviation of consumption, proportion of 0 values, number of NAs, minimum consumption, and maximum consumption.
 ##' @title Get Purchase Task Descriptive Summary
 ##' @param dat Dataframe (long form)
 ##' @param bwplot Boolean. If TRUE, a ggplot2 box and whisker plot is saved. Default is FALSE.
 ##' @param outdir Character. Directory where plot will be saved. Be sure to include trailing '/'. Default location is one level up in "../plots/".
 ##' @param device Character. Type of file. Default is "png". Can be "pdf".
-##' @param filename Character. Specify filename. Defualt is "bwplot". 
+##' @param filename Character. Specify filename. Defualt is "bwplot".
 ##' @return Dataframe with descriptive statistics
 ##' @author Brent Kaplan <bkaplan.ku@@gmail.com>
+##' @seealso [get_descriptive_summary()] for the modern interface
 ##' @examples
 ##' GetDescriptives(apt)
 ##' @export
 GetDescriptives <- function(dat, bwplot = FALSE, outdir = "../plots/", device = "png", filename = "bwplot") {
+    # Soft deprecation warning
+    lifecycle::deprecate_soft(
+        when = "0.3.0",
+        what = "GetDescriptives()",
+        with = "get_descriptive_summary()"
+    )
 
     ## Get N unique prices
     prices <- unique(dat$x)

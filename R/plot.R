@@ -13,7 +13,7 @@
 ## GNU General Public License for more details.
 ##
 ## You should have received a copy of the GNU General Public License
-## along with beezdemand.  If not, see <http://www.gnu.org/licenses/gpl-2.0.html>.
+## along with beezdemand.  If not, see <https://www.gnu.org/licenses/gpl-2.0.html>.
 ##
 ## summary
 ## R script for plotting demand functions
@@ -27,7 +27,7 @@ utils::globalVariables(c("X", "Y", "group", "id", "x", "x1", "x2", "y", "y1", "y
 ##' @noRd
 minTicks <- function(maj) {
   minticks <- vector(length = (length(maj)-1) * 10)
-  for (i in 1:length(maj)) {
+  for (i in seq_along(maj)) {
     if (i == length(maj)) {
       return(minticks)
     }
@@ -104,11 +104,12 @@ annotation_logticks2 <- function(base = 10, sides = "bl", scaled = TRUE, short =
 ##' @author Brent Kaplan <bkaplan.ku@@gmail.com>, Shawn Gilroy <shawn.gilroy@@temple.edu>
 ##' @examples 
 ##' ## Interactively view plots from output from FitCurves
-##' \donttest{
-##' fc <- FitCurves(apt, "hs", k = 2, detailed = TRUE)
-##' PlotCurves(fc, ask = TRUE)}
+##' if (interactive()) {
+##'   fc <- FitCurves(apt, "hs", k = 2, detailed = TRUE)
+##'   PlotCurves(fc, ask = TRUE)
+##' }
 ##' @export
-PlotCurves <- function(dat, outdir = NULL, device = "png", ending = NULL, ask = T, ...) {
+PlotCurves <- function(dat, outdir = NULL, device = "png", ending = NULL, ask = TRUE, ...) {
   
   if (!all(c("dfres", "newdats", "adfs") %in% names(dat))) {
     stop("Object should be from FitCurves. Try rerunning FitCurves with detailed = TRUE")
@@ -125,11 +126,12 @@ PlotCurves <- function(dat, outdir = NULL, device = "png", ending = NULL, ask = 
     ending <- length(dat$fits)
   }
 
-  par(ask = ask)
+  oldpar <- par(ask = ask)
+  on.exit(par(oldpar), add = TRUE)
   
   for (i in 1:ending) {
     ggp <- PlotCurve(dat$adfs[[i]], dat$dfres[i, ], dat$newdats[[i]], ...)
-    if (!class(ggp)[[1]] == "character") {
+    if (!inherits(ggp, "character")) {
       if (ask) {
         suppressWarnings(print(ggp))
       } else {
@@ -158,19 +160,22 @@ PlotCurves <- function(dat, outdir = NULL, device = "png", ending = NULL, ask = 
 ##' @param dfrow A row of results from FitCurves
 ##' @param newdats A newdat dataframe from FitCurves
 ##' @param yscale Scaling of y axis. Default is "log". Can also take "linear"
+##' @param style Plot styling, passed to \code{theme_beezdemand()}.
 ##' @return ggplot2 graphical object
 ##' @author Shawn Gilroy <shawn.gilroy@@temple.edu>
 ##' @import ggplot2
 ##' @examples 
 ##' ## Creates a single plot from elements of an object created by FitCurves
-##' \donttest{
-##' fc <- FitCurves(apt, "hs", k = 2, detailed = TRUE)
-##' PlotCurve(fc$adfs[[1]], fc$dfres[1, ], fc$newdats[[1]])
+##' if (interactive()) {
+##'   fc <- FitCurves(apt, "hs", k = 2, detailed = TRUE)
+##'   PlotCurve(fc$adfs[[1]], fc$dfres[1, ], fc$newdats[[1]])
 ##' }
 ##' @export
-PlotCurve <- function(adf, dfrow, newdats, yscale = "log") {
+PlotCurve <- function(adf, dfrow, newdats, yscale = "log", style = c("modern", "apa")) {
+  style <- match.arg(style)
   if (!any(adf$y > 0)) {
-   return(print("Warning: No positive consumption values!"))
+   warning("No positive consumption values!")
+   return(invisible(NULL))
   }
   
   if (!all(is.na(newdats$y))) {
@@ -209,14 +214,14 @@ PlotCurve <- function(adf, dfrow, newdats, yscale = "log") {
 
       plt <- ggplot2::ggplot(pointFrame,aes(x=X,y=Y)) +
         ggplot2::geom_line(data=tempnew, aes(x=x, y=y)) +
-        ggplot2::geom_segment(aes(x = x1, y = y1, xend = x2, yend = y2), show.legend = F, data = segmentFrame, linetype=2) +
-        ggplot2::geom_point(size=3, shape=21, show.legend=T, colour = "black", fill = "white", alpha = .9, stroke = 1) +
+        ggplot2::geom_segment(aes(x = x1, y = y1, xend = x2, yend = y2), show.legend = FALSE, data = segmentFrame, linetype=2) +
+        ggplot2::geom_point(size=3, shape=21, show.legend=TRUE, colour = "black", fill = "white", alpha = .9, stroke = 1) +
         ggplot2::facet_grid(.~mask, scales="free_x", space="free_x") +
         ggplot2::scale_x_log10(breaks=c(0.0001,  0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000),
                       labels=c("0.00",  0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000)) +
         ggplot2::coord_cartesian(ylim=c(min(c(0.1, tempnew$y)), max(c(tempnew$y, pointFrame$y)) * 1.15)) +
         ggplot2::ggtitle(paste("Participant", dfrow[["id"]], sep = "-")) +
-        beezdemand::theme_apa() +
+        theme_beezdemand(style = style) +
         ggplot2::theme(strip.background = element_blank(),
               strip.text = element_blank(),
               plot.title = element_text(hjust = 0.5),
@@ -243,14 +248,14 @@ PlotCurve <- function(adf, dfrow, newdats, yscale = "log") {
 
       plt <- ggplot2::ggplot(pointFrame,aes(x=X,y=Y)) +
         ggplot2::geom_line(data=tempnew, aes(x=x, y=y)) +
-        ggplot2::geom_segment(aes(x = x1, y = y1, xend = x2, yend = y2), show.legend = F, data = segmentFrame, linetype=2) +
-        ggplot2::geom_point(size=3, shape=21, show.legend=T, colour = "black", fill = "white", alpha = .9, stroke = 1) +
+        ggplot2::geom_segment(aes(x = x1, y = y1, xend = x2, yend = y2), show.legend = FALSE, data = segmentFrame, linetype=2) +
+        ggplot2::geom_point(size=3, shape=21, show.legend=TRUE, colour = "black", fill = "white", alpha = .9, stroke = 1) +
         ggplot2::scale_x_log10(breaks=c(0.00001,  0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000),
                       labels=c(0.00001,  0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000)) +
         ggplot2::coord_cartesian(ylim=c(min(c(0.1, tempnew$y)), max(c(tempnew$y, pointFrame$y)) * 1.15)) +
         ggplot2::ggtitle(paste("Participant", dfrow[["id"]], sep = "-")) +
         annotation_logticks(sides = "b") +
-        beezdemand::theme_apa() +
+        theme_beezdemand(style = style) +
         ggplot2::theme(strip.background = element_blank(),
               strip.text = element_blank(),
               plot.title = element_text(hjust = 0.5),
@@ -288,7 +293,7 @@ PlotCurve <- function(adf, dfrow, newdats, yscale = "log") {
       pointFrame[pointFrame$X == 0,]$X <- 0.0001
 
       plt <- ggplot2::ggplot(pointFrame,aes(x=X,y=Y)) +
-        ggplot2::geom_point(size=3, shape=21, show.legend=T, colour = "black", fill = "white", alpha = .9, stroke = 1) +
+        ggplot2::geom_point(size=3, shape=21, show.legend=TRUE, colour = "black", fill = "white", alpha = .9, stroke = 1) +
         ggplot2::geom_blank(data = data.frame(X=0.001,
                                      Y=0.001,
                                      mask=1)) +
@@ -300,7 +305,7 @@ PlotCurve <- function(adf, dfrow, newdats, yscale = "log") {
                       labels=c("0.00",  0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000)) +
         ggplot2::coord_cartesian(ylim=c(0.1, max(pointFrame$Y) * 1.15)) +
         ggplot2::ggtitle(paste("Participant", dfrow[["id"]], sep = "-")) +
-        beezdemand::theme_apa() +
+        theme_beezdemand(style = style) +
         ggplot2::theme(strip.background = element_blank(),
               strip.text = element_blank(),
               plot.title = element_text(hjust = 0.5),
@@ -326,7 +331,7 @@ PlotCurve <- function(adf, dfrow, newdats, yscale = "log") {
       # Regular representation
 
       plt <- ggplot2::ggplot(pointFrame,aes(x=X,y=Y)) +
-        ggplot2::geom_point(size=3, shape=21, show.legend=T, colour = "black", fill = "white", alpha = .9, stroke = 1) +
+        ggplot2::geom_point(size=3, shape=21, show.legend=TRUE, colour = "black", fill = "white", alpha = .9, stroke = 1) +
         ggplot2::geom_blank(data = data.frame(X=0.001,
                                      Y=0.001)) +
         ggplot2::geom_blank(data = data.frame(X=max(adf$x)*2,
@@ -336,7 +341,7 @@ PlotCurve <- function(adf, dfrow, newdats, yscale = "log") {
         ggplot2::coord_cartesian(ylim=c(0.1, max(pointFrame$Y) * 1.15)) +
         ggplot2::ggtitle(paste("Participant", dfrow[["id"]], sep = "-")) +
         ggplot2::annotation_logticks(sides = "b") +
-        beezdemand::theme_apa() +
+        theme_beezdemand(style = style) +
         ggplot2::theme(strip.background = element_blank(),
               strip.text = element_blank(),
               plot.title = element_text(hjust = 0.5),

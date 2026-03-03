@@ -4,7 +4,7 @@
 \alias{PlotCurve}
 \title{Plot Curve}
 \usage{
-PlotCurve(adf, dfrow, newdats, yscale = "log")
+PlotCurve(adf, dfrow, newdats, yscale = "log", style = c("modern", "apa"))
 }
 \arguments{
 \item{adf}{Data frame (long form) of purchase task data.}
@@ -14,6 +14,8 @@ PlotCurve(adf, dfrow, newdats, yscale = "log")
 \item{newdats}{A newdat dataframe from FitCurves}
 
 \item{yscale}{Scaling of y axis. Default is "log". Can also take "linear"}
+
+\item{style}{Plot styling, passed to \code{theme_beezdemand()}.}
 }
 \value{
 ggplot2 graphical object
@@ -26,11 +28,11 @@ Creates individual demand curves
 }
 \examples{
 ## Creates a single plot from elements of an object created by FitCurves
-\donttest{
-fc <- FitCurves(apt, "hs", k = 2, detailed = TRUE)
-PlotCurve(fc$adfs[[1]], fc$dfres[1, ], fc$newdats[[1]])
+if (interactive()) {
+  fc <- FitCurves(apt, "hs", k = 2, detailed = TRUE)
+  PlotCurve(fc$adfs[[1]], fc$dfres[1, ], fc$newdats[[1]])
 }
 }
 \author{
-Shawn Gilroy <shawn.gilroy@temple.edu>
+Shawn Gilroy \href{mailto:shawn.gilroy@temple.edu}{shawn.gilroy@temple.edu}
 }

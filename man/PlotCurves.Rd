@@ -4,7 +4,7 @@
 \alias{PlotCurves}
 \title{Plot Curves}
 \usage{
-PlotCurves(dat, outdir = NULL, device = "png", ending = NULL, ask = T, ...)
+PlotCurves(dat, outdir = NULL, device = "png", ending = NULL, ask = TRUE, ...)
 }
 \arguments{
 \item{dat}{FitCurves object with 4 elements (dfres, newdats, adfs, fits)}
@@ -30,10 +30,11 @@ Creates and saves plots of individual demand curves
 }
 \examples{
 ## Interactively view plots from output from FitCurves
-\donttest{
-fc <- FitCurves(apt, "hs", k = 2, detailed = TRUE)
-PlotCurves(fc, ask = TRUE)}
+if (interactive()) {
+  fc <- FitCurves(apt, "hs", k = 2, detailed = TRUE)
+  PlotCurves(fc, ask = TRUE)
+}
 }
 \author{
-Brent Kaplan <bkaplan.ku@gmail.com>, Shawn Gilroy <shawn.gilroy@temple.edu>
+Brent Kaplan \href{mailto:bkaplan.ku@gmail.com}{bkaplan.ku@gmail.com}, Shawn Gilroy \href{mailto:shawn.gilroy@temple.edu}{shawn.gilroy@temple.edu}
 }

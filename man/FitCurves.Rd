@@ -18,7 +18,8 @@ FitCurves(
   hibound,
   constrainq0 = NULL,
   startq0 = NULL,
-  startalpha = NULL
+  startalpha = NULL,
+  param_space = c("natural", "log10")
 )
 }
 \arguments{
@@ -49,6 +50,8 @@ FitCurves(
 \item{startq0}{Optional. A number that will be used to start Q0 in the fitting process. Currently experimental.}
 
 \item{startalpha}{Optional. A number that will be used to start Alpha in the fitting process. Currently experimental.}
+
+\item{param_space}{Character. One of "natural" (default) or "log10". Specifies whether parameters (Q0, alpha) are estimated in natural space or log10-transformed space.}
 }
 \value{
 If detailed == FALSE (default), a dataframe of results. If detailed == TRUE, a 3 element list consisting of (1) dataframe of results, (2) list of model objects, (3) list of individual dataframes used in fitting
@@ -56,10 +59,22 @@ If detailed == FALSE (default), a dataframe of results. If detailed == TRUE, a 3
 \description{
 Analyzes purchase task data
 }
+\details{
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#superseded}{\figure{lifecycle-superseded.svg}{options: alt='[Superseded]'}}}{\strong{[Superseded]}}
+
+\code{FitCurves()} has been superseded by \code{\link[=fit_demand_fixed]{fit_demand_fixed()}}, which provides a
+modern S3 interface with standardized methods (\code{summary()}, \code{tidy()},
+\code{glance()}, \code{predict()}). \code{FitCurves()} will continue to work but is no
+longer recommended for new code. See \code{vignette("migration-guide")} for
+migration instructions.
+}
 \examples{
 ## Analyze using Hursh & Silberberg, 2008 equation with a k fixed to 2
 FitCurves(apt[sample(apt$id, 5), ], "hs", k = 2)
 }
+\seealso{
+\code{\link[=fit_demand_fixed]{fit_demand_fixed()}} for the modern interface
+}
 \author{
-Brent Kaplan <bkaplan.ku@gmail.com> Shawn Gilroy <shawn.gilroy@temple.edu>
+Brent Kaplan \href{mailto:bkaplan.ku@gmail.com}{bkaplan.ku@gmail.com} Shawn Gilroy \href{mailto:shawn.gilroy@temple.edu}{shawn.gilroy@temple.edu}
 }
